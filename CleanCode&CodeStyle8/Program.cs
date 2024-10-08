@@ -1,7 +1,9 @@
-﻿using System;
+﻿using Microsoft.SqlServer.Server;
+using System;
 using System.Data;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Security.Cryptography;
 using System.Text;
@@ -43,6 +45,69 @@ namespace CleanCode_CodeStyle8
                 byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(rawData));
 
                 return Convert.ToBase64String(bytes);
+            }
+        }        
+    }
+
+    public class Controller
+    {
+        private Model _model;
+        private View _view;
+        private string _textResult;
+
+        public void ButtonClick()
+        {
+            if (_model.Textbox.IsEmpty)
+            {
+                _view.Message.Show(_view.Message.DataInput);
+                _model.Textbox.GetData();
+            }
+            else
+            {
+                if (_model.Textbox.IsCorrect == false)
+                {
+                    _textResult = _view.Message.Incorrect;
+                }
+                else
+                {
+                    string commandText = string.Format(_view.Command.CommandText, _model.Form.ComputeSha256Hash(_model.Textbox.Text));
+                    string connectionString = string.Format(_view.Command.CommandString);
+
+                    try
+                    {
+                        SQLiteConnection connection = new SQLiteConnection(connectionString);
+
+                        connection.Open();
+
+                        SQLiteDataAdapter sqLiteDataAdapter = new SQLiteDataAdapter(new SQLiteCommand(commandText, connection));
+
+                        DataTable dataTable1 = new DataTable();
+                        DataTable dataTable2 = dataTable1;
+
+                        sqLiteDataAdapter.Fill(dataTable2);
+
+                        if (dataTable1.Rows.Count > 0)
+                        {
+                            if (Convert.ToBoolean(dataTable1.Rows[0].ItemArray[1]))
+                                _textResult = "По паспорту «" + _model.Textbox.Text + "» доступ к бюллетеню на дистанционном электронном голосовании ПРЕДОСТАВЛЕН";
+                            else
+                                _textResult = "По паспорту «" + _model.Textbox.Text + "» доступ к бюллетеню на дистанционном электронном голосовании НЕ ПРЕДОСТАВЛЯЛСЯ";
+                        }
+                        else
+                        {
+                            _textResult = "Паспорт «" + _model.Textbox.Text + "» в списке участников дистанционного голосования НЕ НАЙДЕН";
+                        }
+
+                        connection.Close();
+                    }
+                    catch (SQLiteException ex)
+                    {
+                        if (ex.ErrorCode != 1)
+                            return;
+
+                        _view.Message.Show("Файл db.sqlite не найден. Положите файл в папку вместе с exe.");
+                    }
+                }
             }
         }
 
@@ -122,69 +187,6 @@ namespace CleanCode_CodeStyle8
             }
 
             public int ErrorCode { get; private set; }
-        }
-    }
-
-    public class Controller
-    {
-        private Model _model;
-        private View _view;
-        private string _textResult;
-
-        public void ButtonClick()
-        {
-            if (_model.Textbox.IsEmpty)
-            {
-                _view.Message.Show(_view.Message.DataInput);
-                _model.Textbox.GetData();
-            }
-            else
-            {
-                if (_model.Textbox.IsCorrect == false)
-                {
-                    _textResult = _view.Message.Incorrect;
-                }
-                else
-                {
-                    string commandText = string.Format(_view.Command.CommandText, _model.Form.ComputeSha256Hash(_model.Textbox.Text));
-                    string connectionString = string.Format(_view.Command.CommandString);
-
-                    try
-                    {
-                        SQLiteConnection connection = new SQLiteConnection(connectionString);
-
-                        connection.Open();
-
-                        SQLiteDataAdapter sqLiteDataAdapter = new SQLiteDataAdapter(new SQLiteCommand(commandText, connection));
-
-                        DataTable dataTable1 = new DataTable();
-                        DataTable dataTable2 = dataTable1;
-
-                        sqLiteDataAdapter.Fill(dataTable2);
-
-                        if (dataTable1.Rows.Count > 0)
-                        {
-                            if (Convert.ToBoolean(dataTable1.Rows[0].ItemArray[1]))
-                                _textResult = "По паспорту «" + _model.Textbox.Text + "» доступ к бюллетеню на дистанционном электронном голосовании ПРЕДОСТАВЛЕН";
-                            else
-                                _textResult = "По паспорту «" + _model.Textbox.Text + "» доступ к бюллетеню на дистанционном электронном голосовании НЕ ПРЕДОСТАВЛЯЛСЯ";
-                        }
-                        else
-                        {
-                            _textResult = "Паспорт «" + _model.Textbox.Text + "» в списке участников дистанционного голосования НЕ НАЙДЕН";
-                        }
-
-                        connection.Close();
-                    }
-                    catch (SQLiteException ex)
-                    {
-                        if (ex.ErrorCode != 1)
-                            return;
-
-                        _view.Message.Show("Файл db.sqlite не найден. Положите файл в папку вместе с exe.");
-                    }
-                }
-            }
         }
     }
 
