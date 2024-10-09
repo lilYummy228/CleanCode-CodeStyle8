@@ -31,7 +31,10 @@ namespace CleanCode_CodeStyle8
         }
 
         public void SetTextResult() => 
-            TextResult = _presenter.CheckAccess();
+            TextResult = _presenter.GetAccessState();
+
+        public void SetError() => 
+            TextResult = "Неверный формат серии или номера паспорта";
     }
 
     public interface IView
@@ -40,16 +43,23 @@ namespace CleanCode_CodeStyle8
         string TextResult { get; }
 
         void Show(string message);
+
+        void SetPassportData();
+
+        void SetError();
     }
 
     public class Presenter
     {
         private IView _view;
         private DataBaseContext _model;
+        private string _rawData;
+        private int _dataLength = 10;
 
-        public string CheckAccess()
+
+        public string GetAccessState()
         {
-            var passportData = _model.FindPassportQuery(_model.GetDataTable(Hasher.ComputeSha256Hash(_model.RawData)));
+            var passportData = _model.FindPassportQuery(_model.GetDataTable(Hasher.ComputeSha256Hash(_rawData)));
 
             if (passportData == null)
                 return "Паспорт «" + _view.PassportTextbox + "» в списке участников дистанционного голосования НЕ НАЙДЕН";
@@ -59,17 +69,8 @@ namespace CleanCode_CodeStyle8
             else
                 return "По паспорту «" + _view.PassportTextbox + "» доступ к бюллетеню на дистанционном электронном голосовании НЕ ПРЕДОСТАВЛЯЛСЯ";
         }
-    }
 
-    public class DataBaseContext
-    {
-        private View _view;
-        private int _dataLength = 10;
-        private int _exceptionNumber = 1;
-
-        public string RawData { get; private set; }
-
-        public void CheckText()
+        public void CheckData()
         {
             if (_view.PassportTextbox.Trim() == "")
             {
@@ -78,19 +79,20 @@ namespace CleanCode_CodeStyle8
             }
             else
             {
-                RawData = _view.PassportTextbox.Trim().Replace(" ", string.Empty);
+                _rawData = _view.PassportTextbox.Trim().Replace(" ", string.Empty);
 
-                CheckData(RawData);
+                if (_rawData.Length < _dataLength)
+                    _view.SetError();
+                else
+                    _model.GetDataTable(Hasher.ComputeSha256Hash(_rawData));
             }
         }
+    }
 
-        public void CheckData(string rawData)
-        {
-            if (rawData.Length < _dataLength)
-                _view.TextResult = "Неверный формат серии или номера паспорта";
-            else
-                GetDataTable(Hasher.ComputeSha256Hash(rawData));
-        }
+    public class DataBaseContext
+    {
+        private View _view;
+        private int _exceptionNumber = 1;               
 
         public DataTable GetDataTable(string passportHash)
         {
