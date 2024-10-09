@@ -10,206 +10,187 @@ using System.Text;
 
 namespace CleanCode_CodeStyle8
 {
-    public class Model
+    public class View : IView
     {
-        public PassportTextbox Textbox { get; private set; }
-        public Form1 Form { get; private set; }
+        private Presenter _presenter;
 
-        public class PassportTextbox
+        public string PassportTextbox { get; private set; }
+        public string TextResult { get => TextResult; set => Show(value); }
+
+        public void Show(string message) =>
+            Console.WriteLine(message);
+
+        public void SetPassportData()
         {
-            public string Text { get => Text; set => GetData(); }
-            public bool IsEmpty => Text.Trim() == "";
-            public bool IsCorrect => Text.Length > 10;
+            string value = Console.ReadLine();
 
-            public int GetData()
-            {
-                string input = Console.ReadLine();
+            if (value == string.Empty)
+                throw new ArgumentNullException(nameof(value));
 
-                if (input == string.Empty)
-                    throw new ArgumentNullException(nameof(input));
-
-                int data = Convert.ToInt32(input.Trim().Replace(" ", string.Empty));
-
-                if (data <= 0)
-                    throw new ArgumentOutOfRangeException(nameof(data));
-
-                return data;
-            }
+            PassportTextbox = value;
         }
 
-        public class Form1
-        {
-            public object ComputeSha256Hash(string rawData)
-            {
-                SHA256 sha256 = SHA256.Create();
-                byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(rawData));
-
-                return Convert.ToBase64String(bytes);
-            }
-        }        
+        public void SetTextResult() => 
+            TextResult = _presenter.CheckAccess();
     }
 
-    public class Controller
+    public interface IView
     {
-        private Model _model;
-        private View _view;
-        private string _textResult;
+        string PassportTextbox { get; }
+        string TextResult { get; }
 
-        public void ButtonClick()
+        void Show(string message);
+    }
+
+    public class Presenter
+    {
+        private IView _view;
+        private DataBaseContext _model;
+
+        public string CheckAccess()
         {
-            if (_model.Textbox.IsEmpty)
+            var passportData = _model.FindPassportQuery(_model.GetDataTable(Hasher.ComputeSha256Hash(_model.RawData)));
+
+            if (passportData == null)
+                return "Паспорт «" + _view.PassportTextbox + "» в списке участников дистанционного голосования НЕ НАЙДЕН";
+
+            if (Convert.ToBoolean(passportData))
+                return "По паспорту «" + _view.PassportTextbox + "» доступ к бюллетеню на дистанционном электронном голосовании ПРЕДОСТАВЛЕН";
+            else
+                return "По паспорту «" + _view.PassportTextbox + "» доступ к бюллетеню на дистанционном электронном голосовании НЕ ПРЕДОСТАВЛЯЛСЯ";
+        }
+    }
+
+    public class DataBaseContext
+    {
+        private View _view;
+        private int _dataLength = 10;
+        private int _exceptionNumber = 1;
+
+        public string RawData { get; private set; }
+
+        public void CheckText()
+        {
+            if (_view.PassportTextbox.Trim() == "")
             {
-                _view.Message.Show(_view.Message.DataInput);
-                _model.Textbox.GetData();
+                _view.Show("Введите серию и номер паспорта");
+                _view.SetPassportData();
             }
             else
             {
-                if (_model.Textbox.IsCorrect == false)
-                {
-                    _textResult = _view.Message.Incorrect;
-                }
-                else
-                {
-                    string commandText = string.Format(_view.Command.CommandText, _model.Form.ComputeSha256Hash(_model.Textbox.Text));
-                    string connectionString = string.Format(_view.Command.CommandString);
+                RawData = _view.PassportTextbox.Trim().Replace(" ", string.Empty);
 
-                    try
-                    {
-                        SQLiteConnection connection = new SQLiteConnection(connectionString);
-
-                        connection.Open();
-
-                        SQLiteDataAdapter sqLiteDataAdapter = new SQLiteDataAdapter(new SQLiteCommand(commandText, connection));
-
-                        DataTable dataTable1 = new DataTable();
-                        DataTable dataTable2 = dataTable1;
-
-                        sqLiteDataAdapter.Fill(dataTable2);
-
-                        if (dataTable1.Rows.Count > 0)
-                        {
-                            if (Convert.ToBoolean(dataTable1.Rows[0].ItemArray[1]))
-                                _textResult = "По паспорту «" + _model.Textbox.Text + "» доступ к бюллетеню на дистанционном электронном голосовании ПРЕДОСТАВЛЕН";
-                            else
-                                _textResult = "По паспорту «" + _model.Textbox.Text + "» доступ к бюллетеню на дистанционном электронном голосовании НЕ ПРЕДОСТАВЛЯЛСЯ";
-                        }
-                        else
-                        {
-                            _textResult = "Паспорт «" + _model.Textbox.Text + "» в списке участников дистанционного голосования НЕ НАЙДЕН";
-                        }
-
-                        connection.Close();
-                    }
-                    catch (SQLiteException ex)
-                    {
-                        if (ex.ErrorCode != 1)
-                            return;
-
-                        _view.Message.Show("Файл db.sqlite не найден. Положите файл в папку вместе с exe.");
-                    }
-                }
+                CheckData(RawData);
             }
         }
 
-        public class SQLiteConnection
+        public void CheckData(string rawData)
         {
-            private string _connectionString;
+            if (rawData.Length < _dataLength)
+                _view.TextResult = "Неверный формат серии или номера паспорта";
+            else
+                GetDataTable(Hasher.ComputeSha256Hash(rawData));
+        }
 
-            public SQLiteConnection(string connectionString)
+        public DataTable GetDataTable(string passportHash)
+        {
+            string commandText = string.Format("select * from passports where num='{0}' limit 1;", passportHash);
+            string connectionString = string.Format("Data Source=" + Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "\\db.sqlite");
+
+            try
             {
-                if (connectionString == string.Empty)
-                    throw new ArgumentNullException(nameof(connectionString));
+                SQLiteConnection connection = new SQLiteConnection(connectionString);
 
-                _connectionString = connectionString;
+                connection.Open();
+
+                SQLiteDataAdapter sqLiteDataAdapter = new SQLiteDataAdapter(new SQLiteCommand(commandText, connection));
+
+                DataTable dataTable1 = new DataTable();
+                DataTable dataTable2 = dataTable1;
+
+                sqLiteDataAdapter.Fill(dataTable2);
+
+                return dataTable1;
             }
-
-            internal void Open()
+            catch (SQLiteException exception)
             {
-                throw new NotImplementedException();
-            }
+                if (exception.ErrorCode != _exceptionNumber)
+                    return null;
 
-            internal void Close()
-            {
-                throw new NotImplementedException();
+                _view.Show("Файл db.sqlite не найден. Положите файл в папку вместе с exe.");
+
+                return null;
             }
         }
 
-        public class SQLiteDataAdapter
+        public object FindPassportQuery(DataTable dataTable)
         {
-            private SQLiteCommand _command;
-
-            public SQLiteDataAdapter(SQLiteCommand command)
-            {
-                if (command == null)
-                    throw new ArgumentNullException();
-
-                _command = command;
-            }
-
-            internal void Fill(DataTable dataTable2)
-            {
-                throw new NotImplementedException();
-            }
-        }
-
-        public class SQLiteCommand
-        {
-            private string _commandText;
-            private SQLiteConnection _connection;
-
-            public SQLiteCommand(string commandText, SQLiteConnection connection)
-            {
-                if (commandText == string.Empty || connection == null)
-                    throw new ArgumentNullException(nameof(commandText));
-
-                _commandText = commandText;
-                _connection = connection;
-            }
-        }
-
-        [Serializable]
-        internal class SQLiteException : Exception
-        {
-            public SQLiteException()
-            {
-            }
-
-            public SQLiteException(string message) : base(message)
-            {
-            }
-
-            public SQLiteException(string message, Exception innerException) : base(message, innerException)
-            {
-            }
-
-            protected SQLiteException(SerializationInfo info, StreamingContext context) : base(info, context)
-            {
-            }
-
-            public int ErrorCode { get; private set; }
+            if (dataTable.Rows.Count > 0)
+                return dataTable.Rows[0].ItemArray[1];
+            else            
+                return null;
         }
     }
 
-    public class View
+    [Serializable]
+    internal class SQLiteException : Exception
     {
-        public MessageBox Message { get; private set; }
-        public ConnectionMessage Command { get; private set; }
+        public SQLiteException() { }
 
-        public class MessageBox
+        public SQLiteException(string message) : base(message) { }
+
+        public SQLiteException(string message, Exception innerException) : base(message, innerException) { }
+
+        protected SQLiteException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+
+        public int ErrorCode { get; private set; }
+    }
+
+    public class SQLiteCommand
+    {
+        private string _commandText;
+        private SQLiteConnection _connection;
+
+        public SQLiteCommand(string commandText, SQLiteConnection connection)
         {
-            public string Incorrect { get; private set; } = "Неверный формат серии или номера паспорта";
-            public string DataInput { get; private set; } = "Введите серию и номер паспорта";
-
-            public void Show(string message)
-            {
-                Console.WriteLine(message);
-            }
+            _commandText = commandText;
+            _connection = connection;
         }
+    }
 
-        public class ConnectionMessage
+    public class SQLiteDataAdapter
+    {
+        private SQLiteCommand _sQLiteCommand;
+
+        public SQLiteDataAdapter(SQLiteCommand sQLiteCommand) =>
+            _sQLiteCommand = sQLiteCommand;
+
+        public DataTable Fill(DataTable dataTable2) =>
+            throw new NotImplementedException();
+    }
+
+    public class SQLiteConnection
+    {
+        private string _connectionString;
+
+        public SQLiteConnection(string connectionString) =>
+            _connectionString = connectionString;
+
+        public void Open() =>
+            throw new NotImplementedException();
+
+        public void Close() =>
+            throw new NotImplementedException();
+    }
+
+    public class Hasher
+    {
+        public static string ComputeSha256Hash(string rawData)
         {
-            public string CommandText { get; private set; } = "select * from passports where num='{0}' limit 1;";
-            public string CommandString { get; private set; } = $"Data Source= {Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)}\\db.sqlite";
+            SHA256 sha256 = SHA256.Create();
+            byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(rawData));
+
+            return Convert.ToBase64String(bytes);
         }
     }
 }
