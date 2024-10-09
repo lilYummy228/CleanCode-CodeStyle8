@@ -1,9 +1,7 @@
-﻿using Microsoft.SqlServer.Server;
-using System;
+﻿using System;
 using System.Data;
 using System.IO;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Security.Cryptography;
 using System.Text;
