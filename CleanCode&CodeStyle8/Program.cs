@@ -28,10 +28,9 @@ namespace CleanCode_CodeStyle8
             PassportTextbox = value;
         }
 
-        public void SetTextResult() => 
-            TextResult = _presenter.GetAccessState();
+        public void SetTextResult() => _presenter.GetAccessState(PassportTextbox);
 
-        public void SetError() => 
+        public void SetError() =>
             TextResult = "Неверный формат серии или номера паспорта";
     }
 
@@ -50,22 +49,23 @@ namespace CleanCode_CodeStyle8
     public class Presenter
     {
         private IView _view;
-        private DataBaseContext _model;
-        private string _rawData;
+        private PassportQuery _passportQuery;
+        private DataBaseContext _dataBaseContext;
         private int _dataLength = 10;
+        private int _exceptionNumber = 1;
+        private string _rawData;
 
-
-        public string GetAccessState()
+        public void GetAccessState(string textbox)
         {
-            var passportData = _model.FindPassportQuery(_model.GetDataTable(Hasher.ComputeSha256Hash(_rawData)));
+            CheckData();
 
-            if (passportData == null)
-                return "Паспорт «" + _view.PassportTextbox + "» в списке участников дистанционного голосования НЕ НАЙДЕН";
+            if (_passportQuery.Data == null)
+                _view.Show("Паспорт «" + textbox + "» в списке участников дистанционного голосования НЕ НАЙДЕН");
 
-            if (Convert.ToBoolean(passportData))
-                return "По паспорту «" + _view.PassportTextbox + "» доступ к бюллетеню на дистанционном электронном голосовании ПРЕДОСТАВЛЕН";
+            if (_dataBaseContext.IsExist)
+                _view.Show("По паспорту «" + textbox + "» доступ к бюллетеню на дистанционном электронном голосовании ПРЕДОСТАВЛЕН");
             else
-                return "По паспорту «" + _view.PassportTextbox + "» доступ к бюллетеню на дистанционном электронном голосовании НЕ ПРЕДОСТАВЛЯЛСЯ";
+                _view.Show("По паспорту «" + textbox + "» доступ к бюллетеню на дистанционном электронном голосовании НЕ ПРЕДОСТАВЛЯЛСЯ");
         }
 
         public void CheckData()
@@ -82,17 +82,27 @@ namespace CleanCode_CodeStyle8
                 if (_rawData.Length < _dataLength)
                     _view.SetError();
                 else
-                    _model.GetDataTable(Hasher.ComputeSha256Hash(_rawData));
+                    _dataBaseContext.SetDataTable(Hasher.ComputeSha256Hash(_rawData));
             }
+        }
+
+        public void ShowExceptionReport(SQLiteException exception)
+        {
+            if (exception.ErrorCode != _exceptionNumber)
+                return;
+
+            _view.Show("Файл db.sqlite не найден. Положите файл в папку вместе с exe.");
         }
     }
 
     public class DataBaseContext
     {
-        private View _view;
-        private int _exceptionNumber = 1;               
+        private Presenter _presenter;
+        private PassportQuery _passportQuery;
 
-        public DataTable GetDataTable(string passportHash)
+        public bool IsExist { get; private set; }
+
+        public void SetDataTable(string passportHash)
         {
             string commandText = string.Format("select * from passports where num='{0}' limit 1;", passportHash);
             string connectionString = string.Format("Data Source=" + Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + "\\db.sqlite");
@@ -105,35 +115,41 @@ namespace CleanCode_CodeStyle8
 
                 SQLiteDataAdapter sqLiteDataAdapter = new SQLiteDataAdapter(new SQLiteCommand(commandText, connection));
 
-                DataTable dataTable1 = new DataTable();
-                DataTable dataTable2 = dataTable1;
+                DataTable dataTable = new DataTable();
 
-                sqLiteDataAdapter.Fill(dataTable2);
+                sqLiteDataAdapter.Fill(dataTable);
 
-                return dataTable1;
+                IsExist = _passportQuery.IsExist(dataTable);
             }
             catch (SQLiteException exception)
             {
-                if (exception.ErrorCode != _exceptionNumber)
-                    return null;
-
-                _view.Show("Файл db.sqlite не найден. Положите файл в папку вместе с exe.");
-
-                return null;
+                _presenter.ShowExceptionReport(exception);
             }
         }
+    }
 
-        public object FindPassportQuery(DataTable dataTable)
+    public class PassportQuery
+    {
+        public DataTable Data { get; private set; }
+
+        public bool IsExist(DataTable dataTable)
         {
             if (dataTable.Rows.Count > 0)
-                return dataTable.Rows[0].ItemArray[1];
-            else            
-                return null;
+            {
+                if (dataTable.Rows[0].ItemArray[1] != null)
+                {
+                    Data = dataTable;
+
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 
     [Serializable]
-    internal class SQLiteException : Exception
+    public class SQLiteException : Exception
     {
         public SQLiteException() { }
 
